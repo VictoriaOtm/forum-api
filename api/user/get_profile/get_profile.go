@@ -1,37 +1,26 @@
 package get_profile
 
 import (
-	"log"
-
-	"github.com/VictoriaOtm/forum-api/models/user"
-	"github.com/VictoriaOtm/forum-api/model_pool"
+	"github.com/VictoriaOtm/forum-api/database/stores/userstore"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
 	"github.com/valyala/fasthttp"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
 )
 
+var responseErrorUserNotExists = e.MakeError("error: user not exists")
+
 // Получение данных о пользователе
-
 func Profile(ctx *fasthttp.RequestCtx) {
-	usr := model_pool.UserPool.Get().(*user.User)
-	defer model_pool.UserPool.Put(usr)
+	ctx.Response.Header.Set("Content-type", "application/json")
 
-	usr.Nickname = ctx.UserValue("nickname").(string)
+	usr := userstore.Pool.Acquire()
+	defer userstore.Pool.Utilize(usr)
 
-	err := usr.GetProfile()
-
-	var resp []byte
-	switch err {
-	case nil:
-		resp, err = usr.MarshalJSON()
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-	default:
-		resp = error_m.CommonError
+	err := usr.Get(ctx.UserValue("nickname"))
+	if err != nil {
 		ctx.SetStatusCode(404)
+		ctx.Write(responseErrorUserNotExists)
+		return
 	}
 
-	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+	ctx.Write(usr.MustMarshalJSON())
 }

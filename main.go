@@ -2,7 +2,6 @@ package main
 
 import (
 	FCreate "github.com/VictoriaOtm/forum-api/api/forum/create"
-
 	FSCreate "github.com/VictoriaOtm/forum-api/api/forum/slug/create"
 	FSDetails "github.com/VictoriaOtm/forum-api/api/forum/slug/details"
 	FSThreads "github.com/VictoriaOtm/forum-api/api/forum/slug/threads"
@@ -29,7 +28,13 @@ import (
 	"github.com/buaazp/fasthttprouter"
 	"github.com/valyala/fasthttp"
 
+	_ "net/http/pprof"
+
 	"github.com/VictoriaOtm/forum-api/database"
+	"github.com/VictoriaOtm/forum-api/database/stores/forumstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/poststore"
+	"github.com/VictoriaOtm/forum-api/database/stores/threadstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/userstore"
 )
 
 func initRouter() *fasthttprouter.Router {
@@ -63,10 +68,15 @@ func initRouter() *fasthttprouter.Router {
 
 func main() {
 	log.SetFlags(log.Llongfile)
-
-	database.InitConnPool()
 	database.InitSchema("res/init.sql")
-	database.PrepareStatements()
+	//go func() {
+	//	log.Println(http.ListenAndServe("0.0.0.0:6060", nil))
+	//}()
+
+	forumstore.PrepareStatements()
+	poststore.PrepareStatements()
+	threadstore.PrepareStatements()
+	userstore.PrepareStatements()
 
 	router := initRouter()
 

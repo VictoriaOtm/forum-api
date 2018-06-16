@@ -1,44 +1,45 @@
 package threads
 
 import (
-	"log"
+	"bytes"
 
-	"github.com/VictoriaOtm/forum-api/database"
-	"github.com/VictoriaOtm/forum-api/model_pool"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
-	"github.com/VictoriaOtm/forum-api/models/thread"
+	"github.com/VictoriaOtm/forum-api/database/stores/forumstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/threadstore"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
 	"github.com/valyala/fasthttp"
 )
 
+var responseErrorForumNotExists = e.MakeError("forum not exists")
+
 // Список ветвей форума
-
 func Threads(ctx *fasthttp.RequestCtx) {
-	tArr := model_pool.ThreadArrPool.Get().(thread.Arr)
-	defer model_pool.ThreadArrPool.Put(tArr)
+	ctx.Response.Header.Set("Content-type", "application/json")
+	frmSlug := ctx.UserValue("slug")
 
-	limit := ctx.QueryArgs().Peek("limit")
-	since := ctx.QueryArgs().Peek("since")
-	desc := ctx.QueryArgs().Peek("desc")
+	ts := threadstore.PoolThreadSlice.Acquire()
+	defer threadstore.PoolThreadSlice.Utilize(ts)
 
-	err := tArr.Get(ctx.UserValue("slug").(string), limit, since, desc)
-
-	var resp []byte
-	switch err {
-	case nil:
-		resp, err = tArr.MarshalJSON()
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-	case database.ErrorForumNotExists:
-		resp = error_m.CommonError
-		ctx.SetStatusCode(404)
-
-	default:
-		log.Fatalln(err)
+	err := ts.Get(
+		frmSlug,
+		ctx.QueryArgs().Peek("limit"),
+		ctx.QueryArgs().Peek("since"),
+		bytes.Equal(ctx.QueryArgs().Peek("desc"), []byte("true")),
+	)
+	if err != nil {
+		panic(err)
 	}
 
-	tArr = tArr[:0]
-	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+	if len(ts) == 0 {
+		frm := forumstore.Pool.Acquire()
+		defer forumstore.Pool.Utilize(frm)
+
+		err := frm.Get(frmSlug)
+		if err != nil {
+			ctx.SetStatusCode(404)
+			ctx.Write(responseErrorForumNotExists)
+			return
+		}
+	}
+
+	ctx.Write(ts.MustMarshalJSON())
 }

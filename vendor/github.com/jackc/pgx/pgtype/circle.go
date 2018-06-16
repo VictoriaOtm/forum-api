@@ -103,12 +103,7 @@ func (src *Circle) EncodeText(ci *ConnInfo, buf []byte) ([]byte, error) {
 		return nil, errUndefined
 	}
 
-	buf = append(buf, fmt.Sprintf(`<(%s,%s),%s>`,
-		strconv.FormatFloat(src.P.X, 'f', -1, 64),
-		strconv.FormatFloat(src.P.Y, 'f', -1, 64),
-		strconv.FormatFloat(src.R, 'f', -1, 64),
-	)...)
-
+	buf = append(buf, fmt.Sprintf(`<(%f,%f),%f>`, src.P.X, src.P.Y, src.R)...)
 	return buf, nil
 }
 

@@ -1,41 +1,47 @@
 package users
 
 import (
-	"log"
+	"bytes"
 
-	"github.com/VictoriaOtm/forum-api/model_pool"
-	"github.com/VictoriaOtm/forum-api/models/user"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
+	"github.com/VictoriaOtm/forum-api/database/stores/forumstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/userstore"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
 	"github.com/valyala/fasthttp"
-	"github.com/VictoriaOtm/forum-api/database"
+)
+
+var (
+	responseErrorForumNotExists = e.MakeError("forum not exists")
 )
 
 // Пользователи данного форума
-
 func Users(ctx *fasthttp.RequestCtx) {
-	usrArr := model_pool.UserArrPool.Get().(user.Arr)
-	defer model_pool.UserArrPool.Put(usrArr)
+	ctx.Response.Header.Set("Content-type", "application/json")
+	frmSlug := ctx.UserValue("slug")
 
-	err := usrArr.GetForumUsers(ctx.UserValue("slug").(string), ctx.QueryArgs().Peek("limit"),
-		ctx.QueryArgs().Peek("since"), ctx.QueryArgs().Peek("desc"))
+	us := userstore.PoolUserSlice.Acquire()
+	defer userstore.PoolUserSlice.Utilize(us)
 
-	var resp []byte
-	switch err {
-	case nil:
-		resp, err = usrArr.MarshalJSON()
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-	case database.ErrorForumNotExists:
-		resp = error_m.CommonError
-		ctx.SetStatusCode(404)
-
-	default:
-		log.Fatalln(err)
+	err := us.Get(
+		frmSlug,
+		ctx.QueryArgs().Peek("limit"),
+		ctx.QueryArgs().Peek("since"),
+		bytes.Equal(ctx.QueryArgs().Peek("desc"), []byte("true")),
+	)
+	if err != nil {
+		panic(err)
 	}
 
-	usrArr = usrArr[:0]
-	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+	if len(us) == 0 {
+		frm := forumstore.Pool.Acquire()
+		defer forumstore.Pool.Utilize(frm)
+
+		err = frm.Get(frmSlug)
+		if err != nil {
+			ctx.SetStatusCode(404)
+			ctx.Write(responseErrorForumNotExists)
+			return
+		}
+	}
+
+	ctx.Write(us.MustMarshalJSON())
 }

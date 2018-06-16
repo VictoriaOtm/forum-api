@@ -125,10 +125,7 @@ func (src *Polygon) EncodeText(ci *ConnInfo, buf []byte) ([]byte, error) {
 		if i > 0 {
 			buf = append(buf, ',')
 		}
-		buf = append(buf, fmt.Sprintf(`(%s,%s)`,
-			strconv.FormatFloat(p.X, 'f', -1, 64),
-			strconv.FormatFloat(p.Y, 'f', -1, 64),
-		)...)
+		buf = append(buf, fmt.Sprintf(`(%f,%f)`, p.X, p.Y)...)
 	}
 
 	return append(buf, ')'), nil

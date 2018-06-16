@@ -1,36 +1,26 @@
 package details
 
 import (
-	"log"
-
-	"github.com/VictoriaOtm/forum-api/model_pool"
-	"github.com/VictoriaOtm/forum-api/models/forum"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
+	"github.com/VictoriaOtm/forum-api/database/stores/forumstore"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
 	"github.com/valyala/fasthttp"
 )
 
+var responseErrorForumNotExists = e.MakeError("forum doesn't exist")
+
 // Получение информации о форуме
-
 func Details(ctx *fasthttp.RequestCtx) {
-	frm := model_pool.ForumPool.Get().(*forum.Forum)
-	frm.Posts = 0
-	frm.Threads = 0
-	defer model_pool.ForumPool.Put(frm)
+	ctx.Response.Header.Set("Content-type", "application/json")
 
-	err := frm.Get(ctx.UserValue("slug").(string))
+	frm := forumstore.Pool.Acquire()
+	defer forumstore.Pool.Utilize(frm)
 
-	var resp []byte
-	switch err {
-	case nil:
-		resp, err = frm.MarshalJSON()
-		if err != nil {
-			log.Fatalln(err)
-		}
-	default:
-		resp = error_m.CommonError
+	err := frm.Get(ctx.UserValue("slug"))
+	if err != nil {
 		ctx.SetStatusCode(404)
+		ctx.Write(responseErrorForumNotExists)
+		return
 	}
 
-	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+	ctx.Write(frm.MustMarshalJSON())
 }

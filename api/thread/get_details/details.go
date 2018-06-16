@@ -1,23 +1,20 @@
 package get_details
 
 import (
-	"log"
-
-	"github.com/VictoriaOtm/forum-api/model_pool"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
-	"github.com/VictoriaOtm/forum-api/models/thread"
-	"github.com/valyala/fasthttp"
+	"github.com/VictoriaOtm/forum-api/database/stores/threadstore"
 	"github.com/VictoriaOtm/forum-api/helpers"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
+	"github.com/valyala/fasthttp"
 )
 
-// Получение информации о ветке
+var responseErrorThreadNotExists = e.MakeError("error: thread not exists")
 
+// Получение информации о ветке
 func Details(ctx *fasthttp.RequestCtx) {
-	thr := model_pool.ThreadPool.Get().(*thread.Thread)
-	defer func() {
-		thr.Votes = 0
-		model_pool.ThreadPool.Put(thr)
-	}()
+	ctx.Response.Header.Set("Content-type", "application/json")
+
+	thr := threadstore.Pool.Acquire()
+	defer threadstore.Pool.Utilize(thr)
 
 	var err error
 	slugOrId := ctx.UserValue("slug_or_id").(string)
@@ -27,20 +24,11 @@ func Details(ctx *fasthttp.RequestCtx) {
 		err = thr.GetBySlug(slugOrId)
 	}
 
-	var resp []byte
-	switch err {
-	case nil:
-		resp, err = thr.MarshalJSON()
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-	default:
-		resp = error_m.CommonError
+	if err != nil {
 		ctx.SetStatusCode(404)
+		ctx.Write(responseErrorThreadNotExists)
+		return
 	}
 
-	thr.Slug = nil
-	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+	ctx.Write(thr.MustMarshalJSON())
 }

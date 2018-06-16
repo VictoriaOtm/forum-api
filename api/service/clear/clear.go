@@ -1,21 +1,20 @@
 package clear
 
 import (
-	"github.com/valyala/fasthttp"
 	"github.com/VictoriaOtm/forum-api/database"
-	"log"
+	"github.com/valyala/fasthttp"
 )
 
 // Очистка всех данных в базе
 
 func Clear(ctx *fasthttp.RequestCtx) {
-	_, err := database.DBConnPool.Exec("TRUNCATE t_forum, t_forum_user, t_posts, t_thread, t_user")
+	_, err := database.DB.Exec("TRUNCATE t_forum, t_forum_user, t_posts, t_thread, t_user")
 	if err != nil {
-		log.Fatalln(err)
+		panic(err)
 	}
 
-	_, err = database.DBConnPool.Exec("VACUUM FULL ANALYZE")
+	_, err = database.DB.Exec("VACUUM FULL ANALYZE")
 	if err != nil {
-		log.Fatalln(err)
+		panic(err)
 	}
 }

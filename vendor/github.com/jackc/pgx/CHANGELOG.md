@@ -1,17 +1,3 @@
-# Unreleased
-
-## Features
-
-* Support sslkey, sslcert, and sslrootcert URI params (Sean Chittenden)
-* Allow any scheme in ParseURI (for convenience with cockroachdb) (Sean Chittenden)
-* Add support for domain types
-
-## Fixes
-
-* Fix Rows.Values returning same value for multiple columns of same complex type
-* Fix StartReplication() syntax (steampunkcoder)
-* Fix precision loss for test format geometric types
-
 # 3.1.0 (January 15, 2018)
 
 ## Features

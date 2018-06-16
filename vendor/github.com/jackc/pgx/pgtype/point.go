@@ -98,10 +98,7 @@ func (src *Point) EncodeText(ci *ConnInfo, buf []byte) ([]byte, error) {
 		return nil, errUndefined
 	}
 
-	return append(buf, fmt.Sprintf(`(%s,%s)`,
-		strconv.FormatFloat(src.P.X, 'f', -1, 64),
-		strconv.FormatFloat(src.P.Y, 'f', -1, 64),
-	)...), nil
+	return append(buf, fmt.Sprintf(`(%f,%f)`, src.P.X, src.P.Y)...), nil
 }
 
 func (src *Point) EncodeBinary(ci *ConnInfo, buf []byte) ([]byte, error) {

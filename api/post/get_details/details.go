@@ -1,43 +1,78 @@
 package get_details
 
 import (
+	"bytes"
+	"strconv"
+
+	"sync"
+
+	"github.com/VictoriaOtm/forum-api/database/stores/forumstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/threadstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/userstore"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
 	"github.com/valyala/fasthttp"
-	"github.com/VictoriaOtm/forum-api/model_pool"
-	"github.com/VictoriaOtm/forum-api/models/post"
-	"log"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
-	"strings"
 )
 
+var responseErrorPostNotFound = e.MakeError("error: post not found")
+
 // Получение информации о ветке обсуждения
-
 func Details(ctx *fasthttp.RequestCtx) {
-	p := model_pool.PostDetailsPool.Get().(*post.PostDetails)
-	defer func() {
-		p.User = nil
-		p.Forum = nil
-		p.Thread = nil
+	ctx.Response.Header.Set("Content-type", "application/json")
 
-		model_pool.PostDetailsPool.Put(p)
-	}()
+	pd := pdPool.Acquire()
+	defer pdPool.Utilize(pd)
 
-	related := ctx.QueryArgs().Peek("related")
-	relatedArr := strings.Split(string(related), ",")
-
-	err := p.Get(ctx.UserValue("id").(string), relatedArr)
-
-	var resp []byte
-	switch err {
-	case nil:
-		resp, err = p.MarshalJSON()
-		if err != nil {
-			log.Fatalln(err)
-		}
-	default:
-		resp = error_m.CommonError
+	err := pd.Post.Get(ctx.UserValue("id"))
+	if err != nil {
 		ctx.SetStatusCode(404)
+		ctx.Write(responseErrorPostNotFound)
+		return
 	}
 
-	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+	related := ctx.QueryArgs().Peek("related")
+	relatedArr := bytes.Split(related, []byte(","))
+
+	wg := sync.WaitGroup{}
+
+	for _, r := range relatedArr {
+		switch true {
+		case bytes.Equal(r, []byte("user")):
+			wg.Add(1)
+			go func() {
+				pd.User = userstore.Pool.Acquire()
+				pd.User.Get(pd.Post.Author)
+				wg.Done()
+			}()
+
+		case bytes.Equal(r, []byte("forum")):
+			wg.Add(1)
+			go func() {
+				pd.Forum = forumstore.Pool.Acquire()
+				pd.Forum.Get(pd.Post.Forum)
+				wg.Done()
+			}()
+
+		case bytes.Equal(r, []byte("thread")):
+			wg.Add(1)
+			go func() {
+				pd.Thread = threadstore.Pool.Acquire()
+				pd.Thread.GetById(strconv.Itoa(int(pd.Post.Thread)))
+				wg.Done()
+			}()
+		}
+	}
+
+	wg.Wait()
+	ctx.Write(pd.MustMarshalJSON())
+	if pd.Thread != nil {
+		threadstore.Pool.Utilize(pd.Thread)
+	}
+
+	if pd.Forum != nil {
+		forumstore.Pool.Utilize(pd.Forum)
+	}
+
+	if pd.User != nil {
+		userstore.Pool.Utilize(pd.User)
+	}
 }

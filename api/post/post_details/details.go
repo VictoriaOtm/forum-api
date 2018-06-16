@@ -1,27 +1,32 @@
 package post_details
 
 import (
+	"github.com/VictoriaOtm/forum-api/database/stores/poststore"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
 	"github.com/valyala/fasthttp"
-	"github.com/VictoriaOtm/forum-api/models/post"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
 )
 
+var responseErrorPostNotFound = e.MakeError("error: not found")
+
 // Изменение сообщения
-
 func Details(ctx *fasthttp.RequestCtx) {
-	pUpd := post.PostUpdate{}
-	pUpd.UnmarshalJSON(ctx.Request.Body())
+	ctx.Response.Header.Set("Content-type", "application/json")
 
-	p := post.Post{}
-	err := p.Update(pUpd, ctx.UserValue("id").(string))
+	p := poststore.Post{}
+	err := p.Get(ctx.UserValue("id"))
 	if err != nil {
 		ctx.SetStatusCode(404)
-		ctx.Write(error_m.CommonError)
-		ctx.Response.Header.Set("Content-type", "application/json")
+		ctx.Write(responseErrorPostNotFound)
 		return
 	}
 
-	resp, _ := p.MarshalJSON()
-	ctx.Write(resp)
-	ctx.Response.Header.Set("Content-type", "application/json")
+	pUpdate := poststore.PostUpdate{}
+	pUpdate.MustUnmarshalJSON(ctx.PostBody())
+
+	err = p.Update(pUpdate)
+	if err != nil {
+		panic(err)
+	}
+
+	ctx.Write(p.MustMarshalJSON())
 }

@@ -1,51 +1,73 @@
 package create
 
 import (
+	"strings"
+
+	"github.com/VictoriaOtm/forum-api/database/stores/forumstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/threadstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/userstore"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
+	"github.com/VictoriaOtm/forum-api/helpers/unsafe_map"
 	"github.com/valyala/fasthttp"
-	"github.com/VictoriaOtm/forum-api/model_pool"
-	"github.com/VictoriaOtm/forum-api/models/thread"
-	"log"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
-	"github.com/VictoriaOtm/forum-api/database"
 )
 
-// создание ветки
+var (
+	responseErrorForumNotExists = e.MakeError("forum not exists")
+	responseErrorUserNotExists  = e.MakeError("user not exists")
+)
 
+// Insert - создание ветки
 func Create(ctx *fasthttp.RequestCtx) {
-	thr := model_pool.ThreadPool.Get().(*thread.Thread)
-	defer model_pool.ThreadPool.Put(thr)
-
-	err := thr.UnmarshalJSON(ctx.Request.Body())
-	if err != nil {
-		log.Fatalln(err)
-	}
-	thr.Forum = ctx.UserValue("slug").(string)
-
-	err = thr.Create()
-
-	var resp []byte
-	switch err {
-	case nil:
-		resp, err = thr.MarshalJSON()
-		ctx.SetStatusCode(201)
-
-	case database.ErrorUserNotExists:
-		resp = error_m.CommonError
-		ctx.SetStatusCode(404)
-
-	case database.ErrorForumNotExists:
-		resp = error_m.CommonError
-		ctx.SetStatusCode(404)
-
-	case database.ErrorThreadConflict:
-		resp, err = thr.MarshalJSON()
-		ctx.SetStatusCode(409)
-
-	default:
-		log.Fatalln(err)
-	}
-
-	thr.Slug = nil
 	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+
+	thr := threadstore.Pool.Acquire()
+	defer threadstore.Pool.Utilize(thr)
+
+	thr.MustUnmarshalJSON(ctx.PostBody())
+
+	if thr.Slug != nil {
+		err := thr.GetBySlug(*thr.Slug)
+		if err == nil {
+			ctx.Write(thr.MustMarshalJSON())
+			ctx.SetStatusCode(409)
+			return
+		}
+	}
+
+	frm := forumstore.Pool.Acquire()
+	defer forumstore.Pool.Utilize(frm)
+
+	forumSlug := ctx.UserValue("slug")
+	err := frm.Get(forumSlug)
+	if err != nil {
+		ctx.Write(responseErrorForumNotExists)
+		ctx.SetStatusCode(404)
+		return
+	}
+
+	usr := userstore.Pool.Acquire()
+	defer userstore.Pool.Utilize(usr)
+
+	err = usr.Get(thr.Author)
+	if err != nil {
+		ctx.Write(responseErrorUserNotExists)
+		ctx.SetStatusCode(404)
+		return
+	}
+
+	thr.Forum = frm.Slug
+	thr.Author = usr.Nickname
+
+	err = thr.Insert()
+	if err != nil {
+		ctx.SetStatusCode(500)
+		return
+	}
+	userstore.StoreInForumUserTable(thr.Forum, []interface{}{*usr})
+
+	if thr.Slug != nil {
+		unsafe_map.SlugIDMap.StoreSlug(strings.ToLower(*thr.Slug), thr.Id)
+	}
+	ctx.SetStatusCode(201)
+	ctx.Write(thr.MustMarshalJSON())
 }

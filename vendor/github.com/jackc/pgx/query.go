@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/pkg/errors"
@@ -288,7 +287,7 @@ func (rows *Rows) Values() ([]interface{}, error) {
 		}
 
 		if dt, ok := rows.conn.ConnInfo.DataTypeForOID(fd.DataType); ok {
-			value := reflect.New(reflect.ValueOf(dt.Value).Elem().Type()).Interface().(pgtype.Value)
+			value := dt.Value
 
 			switch fd.FormatCode {
 			case TextFormatCode:

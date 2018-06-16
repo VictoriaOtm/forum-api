@@ -1,48 +1,39 @@
 package post_profile
 
 import (
+	"github.com/VictoriaOtm/forum-api/database/stores/userstore"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
 	"github.com/valyala/fasthttp"
-	"github.com/VictoriaOtm/forum-api/model_pool"
-	"github.com/VictoriaOtm/forum-api/models/user"
-	"log"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
-	"github.com/VictoriaOtm/forum-api/database"
+)
+
+var (
+	responseErrorUserNotExists = e.MakeError("error: user not exists")
+	responseErrorUserConflict  = e.MakeError("error: user conflict")
 )
 
 // Изменение данных о пользователе
-
 func Profile(ctx *fasthttp.RequestCtx) {
-	usr := model_pool.UserPool.Get().(*user.User)
-	defer model_pool.UserPool.Put(usr)
-
-	usr.Nickname = ctx.UserValue("nickname").(string)
-
-	usrNewInfo := &user.Update{}
-	err := usrNewInfo.UnmarshalJSON(ctx.Request.Body())
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	err = usr.Update(usrNewInfo)
-
-	var resp []byte
-
-	switch err {
-	case nil:
-		resp, err = usr.MarshalJSON()
-
-	case database.ErrorUserNotExists:
-		resp = error_m.CommonError
-		ctx.SetStatusCode(404)
-
-	case database.ErrorUserConflict:
-		resp = error_m.CommonError
-		ctx.SetStatusCode(409)
-
-	default:
-		log.Fatalln(err)
-	}
-
 	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+
+	usr := userstore.Pool.Acquire()
+	defer userstore.Pool.Utilize(usr)
+
+	err := usr.Get(ctx.UserValue("nickname"))
+	if err != nil {
+		ctx.SetStatusCode(404)
+		ctx.Write(responseErrorUserNotExists)
+		return
+	}
+
+	usrUpdateInfo := userstore.UserUpdate{}
+	usrUpdateInfo.MustUnmarshalJSON(ctx.PostBody())
+
+	err = usr.Update(usrUpdateInfo)
+	if err != nil {
+		ctx.SetStatusCode(409)
+		ctx.Write(responseErrorUserConflict)
+		return
+	}
+
+	ctx.Write(usr.MustMarshalJSON())
 }

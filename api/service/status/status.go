@@ -1,9 +1,10 @@
 package status
 
 import (
-	"github.com/valyala/fasthttp"
-	"github.com/VictoriaOtm/forum-api/models/status"
 	"log"
+
+	"github.com/VictoriaOtm/forum-api/helpers/status"
+	"github.com/valyala/fasthttp"
 )
 
 // Получение информации о базе данных
@@ -16,7 +17,7 @@ func Status(ctx *fasthttp.RequestCtx) {
 		log.Fatalln(err)
 	}
 
-	resp, err := s.MarshalJSON()
+	resp, _ := s.MarshalJSON()
 	ctx.Response.Header.Set("Content-type", "application/json")
 	ctx.Write(resp)
 }

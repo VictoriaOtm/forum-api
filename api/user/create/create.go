@@ -1,40 +1,32 @@
 package create
 
 import (
-	"log"
-
-	"github.com/VictoriaOtm/forum-api/models/user"
-	"github.com/VictoriaOtm/forum-api/model_pool"
+	"github.com/VictoriaOtm/forum-api/database/stores/userstore"
 	"github.com/valyala/fasthttp"
-	"github.com/VictoriaOtm/forum-api/database"
 )
 
 // Создание нового пользователя
 func Create(ctx *fasthttp.RequestCtx) {
-	var resp []byte
+	ctx.Response.Header.Set("Content-type", "application/json")
 
-	usr := model_pool.UserPool.Get().(*user.User)
-	defer model_pool.UserPool.Put(usr)
-
-	err := usr.UnmarshalJSON(ctx.Request.Body())
-	if err != nil {
-		log.Fatalln(err)
-	}
+	usr := userstore.Pool.Acquire()
+	defer userstore.Pool.Utilize(usr)
+	usr.MustUnmarshalJSON(ctx.PostBody())
 	usr.Nickname = ctx.UserValue("nickname").(string)
 
-	err, userDuplicates := usr.Create()
-
-	switch err {
-	case nil:
-		ctx.SetStatusCode(201)
-		resp, err = usr.MarshalJSON()
-	case database.ErrorUserConflict:
+	us, err := usr.GetByNicknameOrEmail(usr.Nickname, usr.Email)
+	if len(us) != 0 {
 		ctx.SetStatusCode(409)
-		resp, err = userDuplicates.MarshalJSON()
-	default:
-		log.Fatalln(err)
+		ctx.Write(us.MustMarshalJSON())
+		return
 	}
 
-	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+	err = usr.Insert()
+
+	if err != nil {
+		panic(err)
+	}
+
+	ctx.SetStatusCode(201)
+	ctx.Write(usr.MustMarshalJSON())
 }

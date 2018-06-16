@@ -1,52 +1,116 @@
 package create
 
 import (
-	"log"
+	"strings"
+	"sync"
 
-	"github.com/VictoriaOtm/forum-api/database"
-	"github.com/VictoriaOtm/forum-api/model_pool"
-	"github.com/VictoriaOtm/forum-api/models/error_m"
-	"github.com/VictoriaOtm/forum-api/models/post"
+	"time"
+
+	"github.com/VictoriaOtm/forum-api/database/stores/forumstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/poststore"
+	"github.com/VictoriaOtm/forum-api/database/stores/threadstore"
+	"github.com/VictoriaOtm/forum-api/database/stores/userstore"
+	"github.com/VictoriaOtm/forum-api/helpers"
+	e "github.com/VictoriaOtm/forum-api/helpers/error"
+	"github.com/emirpasic/gods/maps/treemap"
 	"github.com/valyala/fasthttp"
 )
 
+var (
+	errorThreadNotFound      = e.MakeError("error: thread not found")
+	errorParentInWrongThread = e.MakeError("error: parent in wrong thread")
+	errorUserNotFount        = e.MakeError("error: user not found")
+)
+
+var timeCreated = time.Unix(time.Now().Unix(), 0)
+
 func Create(ctx *fasthttp.RequestCtx) {
-	postArr := model_pool.PostArrPool.Get().(post.PostsArr)
-	defer model_pool.PostArrPool.Put(postArr)
-
-	err := postArr.UnmarshalJSON(ctx.Request.Body())
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	err = postArr.Create(ctx.UserValue("slug_or_id").(string))
-
-	var resp []byte
-	switch err {
-	case nil:
-		resp, err = postArr.MarshalJSON()
-		if err != nil {
-			log.Fatalln(err)
-		}
-		ctx.SetStatusCode(201)
-
-	case database.ErrorPostParentConflict:
-		ctx.SetStatusCode(409)
-		resp = error_m.CommonError
-
-	case database.ErrorUserNotExists:
-		ctx.SetStatusCode(404)
-		resp = error_m.CommonError
-
-	case database.ErrorThreadNotExists:
-		ctx.SetStatusCode(404)
-		resp = error_m.CommonError
-
-	default:
-		log.Fatalln(err)
-	}
-
-	postArr = postArr[:0]
 	ctx.Response.Header.Set("Content-type", "application/json")
-	ctx.Write(resp)
+
+	thr := threadstore.Pool.Acquire()
+	defer threadstore.Pool.Utilize(thr)
+
+	var err error
+	sOrID := ctx.UserValue("slug_or_id").(string)
+	if helpers.IsNumber(sOrID) {
+		err = thr.GetById(sOrID)
+	} else {
+		err = thr.GetBySlug(sOrID)
+	}
+
+	if err != nil {
+		ctx.SetStatusCode(404)
+		ctx.Write(errorThreadNotFound)
+		return
+	}
+
+	ps := poststore.PoolPostSlice.Acquire()
+	defer poststore.PoolPostSlice.Utilize(ps)
+	ps.MustUnmarshalJSON(ctx.PostBody())
+
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	var err2 error
+	go func() {
+		err2 = ps.ValidateParentsAndThread(thr.Id)
+		wg.Done()
+	}()
+
+	usersMap := treemap.NewWithStringComparator()
+
+	wg.Add(1)
+	var err3 error
+	go func() {
+		for _, post := range ps {
+			usersMap.Put(strings.ToLower(post.Author), nil)
+		}
+
+		err3 = userstore.GetByNicknames(usersMap)
+		wg.Done()
+	}()
+	wg.Wait()
+
+	if err2 != nil {
+		ctx.SetStatusCode(409)
+		ctx.Write(errorParentInWrongThread)
+		return
+	}
+
+	if err3 != nil {
+		ctx.SetStatusCode(404)
+		ctx.Write(errorUserNotFount)
+		return
+	}
+
+	wg.Add(1)
+	go func() {
+		for i, post := range ps {
+			u, _ := usersMap.Get(strings.ToLower(post.Author))
+			ps[i].Author = u.(userstore.User).Nickname
+
+			ps[i].Thread = thr.Id
+			ps[i].Forum = thr.Forum
+			ps[i].Created = timeCreated
+		}
+
+		ps.Insert()
+		wg.Done()
+	}()
+
+	wg.Add(1)
+	go func() {
+		userstore.StoreInForumUserTable(thr.Forum, usersMap.Values())
+		wg.Done()
+	}()
+
+	wg.Add(1)
+	go func() {
+		forumstore.UpdateForumPosts(thr.Forum, int64(len(ps)))
+		wg.Done()
+	}()
+
+	wg.Wait()
+	ctx.SetStatusCode(201)
+	ctx.Write(ps.MustMarshalJSON())
 }

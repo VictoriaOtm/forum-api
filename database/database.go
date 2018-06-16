@@ -1,68 +1,43 @@
 package database
 
 import (
-	"github.com/jackc/pgx"
-	"io/ioutil"
 	"log"
+
+	"io/ioutil"
+
+	"github.com/jackc/pgx"
 )
 
-var DBConnPool *pgx.ConnPool
-
-var dbConnConfig = pgx.ConnConfig{
-	Host:              "localhost",
-	Port:              5432,
-	Database:          "docker",
-	User:              "docker",
-	Password:          "docker",
-	TLSConfig:         nil,
-	UseFallbackTLS:    false,
-	FallbackTLSConfig: nil,
-}
-
-var dbConnPoolConfig = pgx.ConnPoolConfig{
-	ConnConfig:     dbConnConfig,
-	MaxConnections: 50,
-	AcquireTimeout: 0,
-}
-
-func InitConnPool() {
-	var err error
-
-	DBConnPool, err = pgx.NewConnPool(dbConnPoolConfig)
-	if err != nil {
-		log.Fatalln(err)
-	}
-}
-
-func InitSchema(path string) {
-	schema, err := ioutil.ReadFile(path)
+func newConnPool() *pgx.ConnPool {
+	DBConnPool, err := pgx.NewConnPool(dbConnPoolConfig)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	tx, err := DBConnPool.Begin()
+	return DBConnPool
+}
+
+var DB = newConnPool()
+
+func TxMustBegin() *pgx.Tx {
+	tx, err := DB.Begin()
 	if err != nil {
-		log.Fatalln(err)
+		panic(err)
 	}
+	return tx
+}
+
+func InitSchema(pathToSchemaFile string) {
+	schemaStr, err := ioutil.ReadFile(pathToSchemaFile)
+	if err != nil {
+		panic(err)
+	}
+
+	tx := TxMustBegin()
 	defer tx.Commit()
 
-	_, err = tx.Exec(string(schema))
+	_, err = tx.Exec(string(schemaStr))
 	if err != nil {
-		log.Fatalln(err)
-		tx.Rollback()
+		panic(err)
 	}
-}
-
-func mustPrepare(name, stmt string) {
-	_, err := DBConnPool.Prepare(name, stmt)
-	if err != nil {
-		log.Fatalln(name, err)
-	}
-}
-
-func PrepareStatements() {
-	postPrepareStatements()
-	userPrepareStatements()
-	forumPrepareStaements()
-	prepareThreadStatements()
 }

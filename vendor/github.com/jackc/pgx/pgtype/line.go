@@ -101,13 +101,7 @@ func (src *Line) EncodeText(ci *ConnInfo, buf []byte) ([]byte, error) {
 		return nil, errUndefined
 	}
 
-	buf = append(buf, fmt.Sprintf(`{%s,%s,%s}`,
-		strconv.FormatFloat(src.A, 'f', -1, 64),
-		strconv.FormatFloat(src.B, 'f', -1, 64),
-		strconv.FormatFloat(src.C, 'f', -1, 64),
-	)...)
-
-	return buf, nil
+	return append(buf, fmt.Sprintf(`{%f,%f,%f}`, src.A, src.B, src.C)...), nil
 }
 
 func (src *Line) EncodeBinary(ci *ConnInfo, buf []byte) ([]byte, error) {
